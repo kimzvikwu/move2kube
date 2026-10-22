@@ -206,3 +206,32 @@ func TestIsGitBranch(t *testing.T) {
 	}
 
 }
+
+func TestGetGitRepoStructRejectsParentDirSegments(t *testing.T) {
+	invalidURLs := []string{
+		"git+https://github.com/../../../tmp/victim",
+		"git+https://github.com/org/repo/../../..",
+		"git+ssh://github.com/../victim",
+		"git+https://github.com/org/repo:../../etc",
+	}
+	for _, url := range invalidURLs {
+		if _, err := getGitRepoStruct(url); err == nil {
+			t.Errorf("expected an error for the url '%s' but got nil", url)
+		}
+	}
+	if _, err := getGitRepoStruct("git+https://github.com/org/repo..name"); err != nil {
+		t.Errorf("expected '..' inside a path segment to be allowed. Error: %q", err)
+	}
+}
+
+func TestCloneRejectsPathsOutsideDestination(t *testing.T) {
+	destination := t.TempDir()
+	repo := &GitVCSRepo{GitRepoPath: "../escape"}
+	if _, err := repo.Clone(VCSCloneOptions{CloneDestinationPath: destination, Overwrite: true}); err == nil {
+		t.Errorf("expected an error for a repo path outside the clone destination but got nil")
+	}
+	repo = &GitVCSRepo{GitRepoPath: "org/repo", PathWithinRepo: "../../.."}
+	if _, err := repo.Clone(VCSCloneOptions{CloneDestinationPath: destination, Overwrite: true}); err == nil {
+		t.Errorf("expected an error for a path within the repo that is outside the repo but got nil")
+	}
+}

@@ -40,11 +40,13 @@ import (
 
 // v1v2Loader loads a compoose file of versions 1 or 2
 type v1v2Loader struct {
+	// sourceDir is the source directory, files outside it are not read
+	sourceDir string
 }
 
 type preprocessFunc func(rawServiceMap config.RawServiceMap) (config.RawServiceMap, error)
 
-func removeNonExistentEnvFilesV2(path string) preprocessFunc {
+func removeNonExistentEnvFilesV2(path, sourceDir string) preprocessFunc {
 	composeFileDir := filepath.Dir(path)
 	return func(rawServiceMap config.RawServiceMap) (config.RawServiceMap, error) {
 		// Remove unresolvable env files, so that the parser does not throw error
@@ -57,9 +59,7 @@ func removeNonExistentEnvFilesV2(path string) preprocessFunc {
 					if !filepath.IsAbs(envFilePath) {
 						envFilePath = filepath.Join(composeFileDir, envFilePath)
 					}
-					finfo, err := os.Stat(envFilePath)
-					if os.IsNotExist(err) || finfo.IsDir() {
-						logrus.Warnf("Unable to find env config file %s referred in service %s in file %s. Ignoring it.", envFilePath, serviceName, path)
+					if !isEnvFileUsable(envFilePath, serviceName, path, sourceDir) {
 						delete(vals, envFile)
 					}
 				} else if envfilesvalsint, ok := envfilesvals.([]interface{}); ok {
@@ -70,9 +70,7 @@ func removeNonExistentEnvFilesV2(path string) preprocessFunc {
 							if !filepath.IsAbs(envFilePath) {
 								envFilePath = filepath.Join(composeFileDir, envFilePath)
 							}
-							finfo, err := os.Stat(envFilePath)
-							if os.IsNotExist(err) || finfo.IsDir() {
-								logrus.Warnf("Unable to find env config file %s referred in service %s in file %s. Ignoring it.", envFilePath, serviceName, path)
+							if !isEnvFileUsable(envFilePath, serviceName, path, sourceDir) {
 								continue
 							}
 							envfiles = append(envfiles, envfilesstr)
@@ -100,7 +98,7 @@ func parseCapturingPanics(proj *project.Project) (err error) {
 }
 
 // parseV2 parses version 2 compose files
-func parseV2(path string, interpolate bool) (*project.Project, error) {
+func parseV2(path, sourceDir string, interpolate bool) (*project.Project, error) {
 	context := project.Context{}
 	context.ComposeFiles = []string{path}
 	context.ResourceLookup = new(lookup.FileResourceLookup)
@@ -121,7 +119,7 @@ func parseV2(path string, interpolate bool) (*project.Project, error) {
 	parseOptions := config.ParseOptions{
 		Interpolate: interpolate,
 		Validate:    true,
-		Preprocess:  removeNonExistentEnvFilesV2(path),
+		Preprocess:  removeNonExistentEnvFilesV2(path, sourceDir),
 	}
 	proj := project.NewProject(&context, nil, &parseOptions)
 	originalLevel := logrus.GetLevel()
@@ -138,7 +136,10 @@ func parseV2(path string, interpolate bool) (*project.Project, error) {
 
 // ConvertToIR loads a compose file to IR
 func (c *v1v2Loader) ConvertToIR(composefilepath string, serviceName string, parseNetwork bool) (ir irtypes.IR, err error) {
-	proj, err := parseV2(composefilepath, true)
+	if c.sourceDir == "" {
+		c.sourceDir = filepath.Dir(composefilepath)
+	}
+	proj, err := parseV2(composefilepath, c.sourceDir, true)
 	if err != nil {
 		return irtypes.IR{}, err
 	}

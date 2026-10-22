@@ -506,7 +506,8 @@ func (e *Environment) GetProjectName() string {
 // IsPathValid returns if the project path is valid or not
 func (e *Environment) IsPathValid(path string) bool {
 	cleanpath := filepath.Clean(path)
-	if common.IsParent(cleanpath, common.TempPath) || common.IsParent(cleanpath, e.GetEnvironmentContext()) || common.IsParent(cleanpath, e.GetEnvironmentSource()) || common.IsParent(cleanpath, e.GetEnvironmentOutput()) {
+	// resolve symlinks so that a symlink inside an allowed directory cannot be used to access paths outside of it
+	if common.IsParentAfterResolvingSymlinks(cleanpath, common.TempPath) || common.IsParentAfterResolvingSymlinks(cleanpath, e.GetEnvironmentContext()) || common.IsParentAfterResolvingSymlinks(cleanpath, e.GetEnvironmentSource()) || common.IsParentAfterResolvingSymlinks(cleanpath, e.GetEnvironmentOutput()) {
 		return true
 	}
 	return false

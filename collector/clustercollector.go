@@ -489,7 +489,7 @@ func (c *ClusterCollector) clusterByGroupsAndSortVersions(gvList []string) []str
 }
 
 func (c *ClusterCollector) collectUsingCLI() (map[string][]string, error) {
-	cmd := exec.Command("bash", "-c", c.getClusterCommand()+" api-resources -o name")
+	cmd := exec.Command(c.getClusterCommand(), "api-resources", "-o", "name")
 	output, err := cmd.Output()
 	if err != nil {
 		logrus.Errorf("Error while running kubectl api-resources: %s", err)
@@ -577,7 +577,7 @@ func (c *ClusterCollector) getPreferredGVUsingCLI(kind string, availableGroupLis
 }
 
 func (c *ClusterCollector) isSupportedGV(kind string, gvStr string) (bool, error) {
-	cmd := exec.Command("bash", "-c", c.getClusterCommand()+" explain "+kind+" --api-version="+gvStr+" --recursive")
+	cmd := exec.Command(c.getClusterCommand(), "explain", kind, "--api-version="+gvStr, "--recursive")
 	output, err := cmd.Output()
 	if err != nil {
 		logrus.Debugf("Error while running %s for verifying [%s]\n", c.getClusterCommand(), gvStr)
@@ -598,7 +598,7 @@ func (c *ClusterCollector) isSupportedGV(kind string, gvStr string) (bool, error
 }
 
 func (c *ClusterCollector) getGVKUsingNameCLI(name string) (string, string, error) {
-	cmd := exec.Command("bash", "-c", c.getClusterCommand()+" explain "+name)
+	cmd := exec.Command(c.getClusterCommand(), "explain", name)
 	output, err := cmd.Output()
 	if err != nil {
 		//logrus.Errorf("Error while running kubectl: %s\n", err)

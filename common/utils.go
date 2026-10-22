@@ -1130,6 +1130,47 @@ func IsParent(child, parent string) bool {
 	return true
 }
 
+// IsParentAfterResolvingSymlinks is like IsParent but resolves symlinks in both paths first,
+// so a symlink inside the parent that points outside of it is not considered a child.
+// The child path does not need to exist, symlinks in its longest existing prefix are resolved.
+func IsParentAfterResolvingSymlinks(child, parent string) bool {
+	resolvedChild, err := resolveExistingPrefix(child)
+	if err != nil {
+		logrus.Debugf("failed to resolve the symlinks in the path '%s' . Error: %q", child, err)
+		return false
+	}
+	resolvedParent, err := resolveExistingPrefix(parent)
+	if err != nil {
+		logrus.Debugf("failed to resolve the symlinks in the path '%s' . Error: %q", parent, err)
+		return false
+	}
+	return IsParent(resolvedChild, resolvedParent)
+}
+
+// resolveExistingPrefix makes the path absolute and resolves the symlinks in the longest prefix of the path that exists
+func resolveExistingPrefix(path string) (string, error) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	rest := ""
+	for {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err == nil {
+			return filepath.Join(resolved, rest), nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return filepath.Join(path, rest), nil
+		}
+		rest = filepath.Join(filepath.Base(path), rest)
+		path = parent
+	}
+}
+
 // GetRandomString generates a random string
 func GetRandomString() string {
 	return cast.ToString(rand.Intn(10000000))

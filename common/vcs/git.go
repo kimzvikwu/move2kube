@@ -107,6 +107,10 @@ func getGitRepoStruct(vcsurl string) (*GitVCSRepo, error) {
 	} else {
 		return nil, fmt.Errorf("failed to have either of the prefixes git+https or git+ssh, got %v", gitUrl)
 	}
+	// the repo path is used to build the clone destination path, so it must not be able to escape it
+	if hasParentDirSegment(gitRepoStruct.GitRepoPath) || hasParentDirSegment(gitRepoStruct.PathWithinRepo) {
+		return nil, fmt.Errorf("the git remote path must not contain '..' path segments, got %s", vcsurl)
+	}
 
 	if len(partsSplitByAt) == 2 {
 		if isGitBranch(partsSplitByAt[1]) {
@@ -119,6 +123,16 @@ func getGitRepoStruct(vcsurl string) (*GitVCSRepo, error) {
 	}
 	return &gitRepoStruct, nil
 
+}
+
+// hasParentDirSegment checks if the path contains a '..' segment
+func hasParentDirSegment(path string) bool {
+	for _, part := range strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // isGitVCS checks if the given vcs url is a git repo url
@@ -215,6 +229,9 @@ func (gvcsrepo *GitVCSRepo) Clone(cloneOptions VCSCloneOptions) (string, error) 
 		return "", fmt.Errorf("the path where the repository has to be cloned cannot be empty")
 	}
 	repoPath := filepath.Join(cloneOptions.CloneDestinationPath, gvcsrepo.GitRepoPath)
+	if !common.IsParent(repoPath, cloneOptions.CloneDestinationPath) || !common.IsParent(filepath.Join(repoPath, gvcsrepo.PathWithinRepo), repoPath) {
+		return "", fmt.Errorf("the git repo path '%s' is outside the clone destination path '%s'", repoPath, cloneOptions.CloneDestinationPath)
+	}
 	repoDirInfo, err := os.Stat(repoPath)
 	if err != nil {
 		if !os.IsNotExist(err) {

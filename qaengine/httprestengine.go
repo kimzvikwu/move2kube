@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/gorilla/mux"
 	"github.com/konveyor/move2kube/common"
@@ -34,7 +35,9 @@ import (
 
 // HTTPRESTEngine handles qa using HTTP REST services
 type HTTPRESTEngine struct {
-	port           int
+	port int
+	// mu guards currentProblem, it is held while waiting for the next problem so that concurrent requests are serialized
+	mu             sync.Mutex
 	currentProblem qatypes.Problem
 	problemChan    chan qatypes.Problem
 	answerChan     chan qatypes.Problem
@@ -70,10 +73,12 @@ func (h *HTTPRESTEngine) StartEngine() error {
 	r.HandleFunc(currentProblemURLPrefix, h.getQuestionHandler).Methods("GET")
 	r.HandleFunc(currentSolutionURLPrefix, h.postSolutionHandler).Methods("POST")
 
+	r.Use(localOnlyMiddleware)
 	http.Handle("/", r)
 	qaportstr := cast.ToString(h.port)
 
-	listener, err := net.Listen("tcp", ":"+qaportstr)
+	// Only listen on the loopback interface since the API has no authentication
+	listener, err := net.Listen("tcp", "127.0.0.1:"+qaportstr)
 	if err != nil {
 		return fmt.Errorf("unable to listen on port %d : %s", h.port, err)
 	}
@@ -150,10 +155,17 @@ func (h *HTTPRESTEngine) getQuestionHandler(w http.ResponseWriter, r *http.Reque
 	logrus.Trace("problemHandler start")
 	defer logrus.Trace("problemHandler end")
 	logrus.Debug("Looking for a problem fron HTTP REST service")
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	// if currently problem is resolved
 	if h.currentProblem.Answer != nil || h.currentProblem.ID == "" {
 		// Pick the next problem off the channel
-		h.currentProblem = <-h.problemChan
+		select {
+		case h.currentProblem = <-h.problemChan:
+		case <-r.Context().Done():
+			logrus.Debugf("the client went away while waiting for the next problem. Error: %q", r.Context().Err())
+			return
+		}
 	}
 	logrus.Debugf("QA Engine serves problem id: '%s' desc: '%s'", h.currentProblem.ID, h.currentProblem.Desc)
 	// Send the problem to the request.
@@ -170,6 +182,13 @@ func (h *HTTPRESTEngine) postSolutionHandler(w http.ResponseWriter, r *http.Requ
 	logrus.Trace("solutionHandler start")
 	defer logrus.Trace("solutionHandler end")
 	logrus.Debugf("QA Engine reading solution: %+v", r.Body)
+	if mediaType := strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]); mediaType != "application/json" {
+		// Rejecting other content types prevents browsers from sending cross origin requests without a CORS preflight
+		err := fmt.Errorf("expected the content type 'application/json' . Actual: '%s'", mediaType)
+		http.Error(w, err.Error(), http.StatusUnsupportedMediaType)
+		logrus.Error(err.Error())
+		return
+	}
 	// Read out the solution
 	var prob qatypes.Problem
 	if err := json.NewDecoder(r.Body).Decode(&prob); err != nil {
@@ -179,6 +198,8 @@ func (h *HTTPRESTEngine) postSolutionHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	logrus.Debugf("QA Engine received the solution: %+v", prob)
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if h.currentProblem.ID != prob.ID {
 		err := fmt.Errorf("the solution's problem ID doesn't match the current problem. Expected: '%s' Actual '%s'", h.currentProblem.ID, prob.ID)
 		http.Error(w, err.Error(), http.StatusNotAcceptable)
@@ -193,5 +214,24 @@ func (h *HTTPRESTEngine) postSolutionHandler(w http.ResponseWriter, r *http.Requ
 	}
 	logrus.Debugf("QA Engine set the given solution as the answer: %+v", h.currentProblem)
 	w.WriteHeader(http.StatusNoContent)
-	go func() { h.answerChan <- h.currentProblem }()
+	answeredProblem := h.currentProblem
+	go func() { h.answerChan <- answeredProblem }()
+}
+
+// localOnlyMiddleware rejects requests whose Host header is not a loopback address to prevent DNS rebinding attacks
+func localOnlyMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.Host)
+		if err != nil {
+			host = r.Host
+		}
+		ip := net.ParseIP(host)
+		if host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			err := fmt.Errorf("the host '%s' is not allowed. Only loopback hosts are allowed", r.Host)
+			http.Error(w, err.Error(), http.StatusForbidden)
+			logrus.Error(err.Error())
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

@@ -21,8 +21,17 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	// maxDownloadSize is the maximum size (in bytes) of the content that will be downloaded
+	maxDownloadSize int64 = 100 * 1024 * 1024
+	// downloadTimeout is the maximum time allowed for a download
+	downloadTimeout = 5 * time.Minute
 )
 
 // HTTPContent stores remote content config
@@ -56,7 +65,11 @@ func (content *HTTPContent) Download(downloadOptions DownloadOptions) (string, e
 	}
 	defer out.Close()
 
-	resp, err := http.Get(downloadOptions.ContentURL)
+	if !strings.HasPrefix(strings.ToLower(downloadOptions.ContentURL), "https://") {
+		logrus.Warnf("downloading content over an unencrypted connection from %s . The content can be tampered with in transit. Use https instead.", downloadOptions.ContentURL)
+	}
+	client := &http.Client{Timeout: downloadTimeout}
+	resp, err := client.Get(downloadOptions.ContentURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to http get content from the provided content url - %s. Error : %+v", downloadOptions.ContentURL, err)
 	}
@@ -66,9 +79,12 @@ func (content *HTTPContent) Download(downloadOptions DownloadOptions) (string, e
 		return "", fmt.Errorf("failed to http get content from the provided content url - %s. Received status code %d", downloadOptions.ContentURL, resp.StatusCode)
 	}
 
-	_, err = io.Copy(out, resp.Body)
+	n, err := io.Copy(out, io.LimitReader(resp.Body, maxDownloadSize+1))
 	if err != nil {
 		return "", fmt.Errorf("failed to copy content from response to file. Error : %+v", err)
+	}
+	if n > maxDownloadSize {
+		return "", fmt.Errorf("the content at the url %s is larger than the maximum allowed size of %d bytes", downloadOptions.ContentURL, maxDownloadSize)
 	}
 	content.ContentFilePath = downloadOptions.DownloadDestinationPath
 	return downloadOptions.DownloadDestinationPath, nil

@@ -21,11 +21,14 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/konveyor/move2kube/common"
 	"github.com/sirupsen/logrus"
 )
 
 type processor struct {
 	options options
+	// root is the top level source path, symlinks pointing outside of it are skipped
+	root string
 }
 
 type options struct {
@@ -43,7 +46,13 @@ func newProcessor(options options) *processor {
 }
 
 func (p *processor) process(source, destination string) error {
-	si, err := os.Stat(source)
+	statFn := os.Lstat
+	if p.root == "" {
+		// the top level source path is allowed to be a symlink, follow it
+		p.root = source
+		statFn = os.Stat
+	}
+	si, err := statFn(source)
 	if err != nil {
 		return fmt.Errorf("failed to stat the source path '%s' . Error: %w", source, err)
 	}
@@ -129,10 +138,30 @@ func (p *processor) processDirectory(source, destination string) error {
 	return nil
 }
 
+// processSymLink recreates the symlink at the destination instead of copying the contents of its target.
+// Symlinks that point outside the root are skipped so that files outside the source are never pulled in.
 func (p *processor) processSymLink(source, destination string) error {
 	link, err := os.Readlink(source)
 	if err != nil {
 		return err
+	}
+	target := link
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(source), target)
+	}
+	if !common.IsParentAfterResolvingSymlinks(target, p.root) {
+		logrus.Warnf("skipping the symlink '%s' since it points to '%s' which is outside the directory '%s'", source, link, p.root)
+		return nil
+	}
+	if di, err := os.Lstat(destination); err == nil {
+		if di.Mode()&os.ModeSymlink != 0 {
+			if existingLink, err := os.Readlink(destination); err == nil && existingLink == link {
+				return nil
+			}
+		}
+		if err := os.RemoveAll(destination); err != nil {
+			return fmt.Errorf("failed to remove the existing path '%s' . Error: %w", destination, err)
+		}
 	}
 	return os.Symlink(link, destination)
 }

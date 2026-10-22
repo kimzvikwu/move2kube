@@ -40,9 +40,11 @@ import (
 
 // v3Loader loads a v3 compose file
 type v3Loader struct {
+	// sourceDir is the source directory, files outside it are not read
+	sourceDir string
 }
 
-func removeNonExistentEnvFilesV3(path string, parsedComposeFile map[string]interface{}) map[string]interface{} {
+func removeNonExistentEnvFilesV3(path, sourceDir string, parsedComposeFile map[string]interface{}) map[string]interface{} {
 	// Remove unresolvable env files, so that the parser does not throw error
 	composeFileDir := filepath.Dir(path)
 	if val, ok := parsedComposeFile["services"]; ok {
@@ -57,9 +59,7 @@ func removeNonExistentEnvFilesV3(path string, parsedComposeFile map[string]inter
 							if !filepath.IsAbs(envFilePath) {
 								envFilePath = filepath.Join(composeFileDir, envFilePath)
 							}
-							finfo, err := os.Stat(envFilePath)
-							if os.IsNotExist(err) || finfo.IsDir() {
-								logrus.Warnf("Unable to find env config file %s referred in service %s in file %s. Ignoring it.", envFilePath, serviceName, path)
+							if !isEnvFileUsable(envFilePath, serviceName, path, sourceDir) {
 								delete(vals, envFile)
 							}
 						} else if envfilesvalsint, ok := envfilesvals.([]interface{}); ok {
@@ -70,9 +70,7 @@ func removeNonExistentEnvFilesV3(path string, parsedComposeFile map[string]inter
 									if !filepath.IsAbs(envFilePath) {
 										envFilePath = filepath.Join(composeFileDir, envFilePath)
 									}
-									finfo, err := os.Stat(envFilePath)
-									if os.IsNotExist(err) || finfo.IsDir() {
-										logrus.Warnf("Unable to find env config file %s referred in service %s in file %s. Ignoring it.", envFilePath, serviceName, path)
+									if !isEnvFileUsable(envFilePath, serviceName, path, sourceDir) {
 										continue
 									}
 									envfiles = append(envfiles, envfilesstr)
@@ -89,7 +87,7 @@ func removeNonExistentEnvFilesV3(path string, parsedComposeFile map[string]inter
 }
 
 // parseV3 parses version 3 compose files
-func parseV3(path string) (*types.Config, error) {
+func parseV3(path, sourceDir string) (*types.Config, error) {
 	fileData, err := os.ReadFile(path)
 	if err != nil {
 		err := fmt.Errorf("unable to load Compose file at path %s Error: %q", path, err)
@@ -103,7 +101,7 @@ func parseV3(path string) (*types.Config, error) {
 		logrus.Debug(err)
 		return nil, err
 	}
-	parsedComposeFile = removeNonExistentEnvFilesV3(path, parsedComposeFile)
+	parsedComposeFile = removeNonExistentEnvFilesV3(path, sourceDir, parsedComposeFile)
 	// Adding .env file values if it exists
 	var envMap map[string]string
 	composeFileDir := filepath.Dir(path)
@@ -134,7 +132,10 @@ func parseV3(path string) (*types.Config, error) {
 // ConvertToIR loads an v3 compose file into IR
 func (c *v3Loader) ConvertToIR(composefilepath string, serviceName string, parseNetwork bool) (irtypes.IR, error) {
 	logrus.Debugf("About to load configuration from docker compose file at path %s", composefilepath)
-	config, err := parseV3(composefilepath)
+	if c.sourceDir == "" {
+		c.sourceDir = filepath.Dir(composefilepath)
+	}
+	config, err := parseV3(composefilepath, c.sourceDir)
 	if err != nil {
 		logrus.Debugf("Error while loading docker compose config : %s", err)
 		return irtypes.IR{}, err
@@ -449,7 +450,7 @@ func (c *v3Loader) getSecretStorages(secrets map[string]types.SecretConfig) []ir
 			StorageType: irtypes.SecretKind,
 		}
 
-		if !secretObj.External.External {
+		if !secretObj.External.External && isPathInsideSource(secretObj.File, c.sourceDir) {
 			content, err := os.ReadFile(secretObj.File)
 			if err != nil {
 				logrus.Warnf("Could not read the secret file [%s]", secretObj.File)
@@ -474,7 +475,7 @@ func (c *v3Loader) getConfigStorages(configs map[string]types.ConfigObjConfig) [
 			StorageType: irtypes.ConfigMapKind,
 		}
 
-		if !cfgObj.External.External {
+		if !cfgObj.External.External && isPathInsideSource(cfgObj.File, c.sourceDir) {
 			fileInfo, err := os.Stat(cfgObj.File)
 			if err != nil {
 				logrus.Warnf("Could not identify the type of secret artifact [%s]. Encountered [%s]", cfgObj.File, err)

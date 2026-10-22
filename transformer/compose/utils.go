@@ -287,6 +287,26 @@ func createStorage(filePath string, storageName string, storageType irtypes.Stor
 	return storage, nil
 }
 
+// isPathInsideSource checks that the path, after resolving symlinks, is inside the source directory.
+// Compose files come from the source being transformed, so they must not pull in other files from the host.
+func isPathInsideSource(path, sourceDir string) bool {
+	if common.IsParentAfterResolvingSymlinks(path, sourceDir) {
+		return true
+	}
+	logrus.Warnf("ignoring the path '%s' since it is outside the source directory '%s'", path, sourceDir)
+	return false
+}
+
+// isEnvFileUsable checks that the env file exists, is a file and is inside the source directory
+func isEnvFileUsable(envFilePath, serviceName, composeFilePath, sourceDir string) bool {
+	finfo, err := os.Stat(envFilePath)
+	if err != nil || finfo.IsDir() {
+		logrus.Warnf("Unable to find env config file %s referred in service %s in file %s. Ignoring it.", envFilePath, serviceName, composeFilePath)
+		return false
+	}
+	return isPathInsideSource(envFilePath, sourceDir)
+}
+
 func getAllDirContentAsMap(directoryPath string) (map[string][]byte, error) {
 	fileList, err := os.ReadDir(directoryPath)
 	if err != nil {
@@ -299,8 +319,13 @@ func getAllDirContentAsMap(directoryPath string) (map[string][]byte, error) {
 			continue
 		}
 		fileName := file.Name()
+		filePath := filepath.Join(directoryPath, fileName)
+		if !common.IsParentAfterResolvingSymlinks(filePath, directoryPath) {
+			logrus.Warnf("ignoring the file '%s' since it is a symlink pointing outside the directory '%s'", filePath, directoryPath)
+			continue
+		}
 		logrus.Debugf("Reading file into the data map: [%s]", fileName)
-		data, err := os.ReadFile(filepath.Join(directoryPath, fileName))
+		data, err := os.ReadFile(filePath)
 		if err != nil {
 			logrus.Debugf("Unable to read file data : %s", fileName)
 			continue

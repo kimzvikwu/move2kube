@@ -137,10 +137,10 @@ func (t *ComposeAnalyser) Transform(newArtifacts []transformertypes.Artifact, al
 			composeFilePath := filepath.Join(newArtifact.Paths[dockerComposeContextPathType][0], composeFileName)
 			logrus.Debugf("file at path '%s' being loaded from the compose service name '%s'", composeFilePath, config.ServiceName)
 			// Try v3 first and if it fails try v1v2
-			if cir, errV3 := new(v3Loader).ConvertToIR(composeFilePath, config.ServiceName, t.ComposeAnalyzerConfig.EnableNetworkParsing); errV3 == nil {
+			if cir, errV3 := (&v3Loader{sourceDir: t.Env.GetEnvironmentSource()}).ConvertToIR(composeFilePath, config.ServiceName, t.ComposeAnalyzerConfig.EnableNetworkParsing); errV3 == nil {
 				ir.Merge(cir)
 				logrus.Debugf("compose v3 transformer returned %d services", len(ir.Services))
-			} else if cir, errV1V2 := new(v1v2Loader).ConvertToIR(composeFilePath, config.ServiceName, t.ComposeAnalyzerConfig.EnableNetworkParsing); errV1V2 == nil {
+			} else if cir, errV1V2 := (&v1v2Loader{sourceDir: t.Env.GetEnvironmentSource()}).ConvertToIR(composeFilePath, config.ServiceName, t.ComposeAnalyzerConfig.EnableNetworkParsing); errV1V2 == nil {
 				ir.Merge(cir)
 				logrus.Debugf("compose v1v2 transformer returned %d services", len(ir.Services))
 			} else {
@@ -257,7 +257,7 @@ func (t *ComposeAnalyser) getService(composeFilePath string, serviceName string,
 func (t *ComposeAnalyser) getServicesFromComposeFile(composeFilePath string, imageMetadataPaths map[string]string) map[string][]transformertypes.Artifact {
 	services := map[string][]transformertypes.Artifact{}
 	// Try v3 first and if it fails try v1v2
-	dcV3, errV3 := parseV3(composeFilePath)
+	dcV3, errV3 := parseV3(composeFilePath, t.Env.GetEnvironmentSource())
 	if errV3 == nil {
 		logrus.Debugf("Found a docker compose file at path %s", composeFilePath)
 		for _, service := range dcV3.Services {
@@ -270,7 +270,7 @@ func (t *ComposeAnalyser) getServicesFromComposeFile(composeFilePath string, ima
 		// With interpolation error v2 parser panics. This prevents the panic. TODO: Is this still relevant? https://github.com/compose-spec/compose-go
 		interpolate = false
 	}
-	dcV1V2, errV1V2 := parseV2(composeFilePath, interpolate)
+	dcV1V2, errV1V2 := parseV2(composeFilePath, t.Env.GetEnvironmentSource(), interpolate)
 	if errV1V2 != nil {
 		logrus.Debugf("Failed to parse file at path %s as a docker compose file. Error V3: %q Error V1V2: %q", composeFilePath, errV3, errV1V2)
 		return services
