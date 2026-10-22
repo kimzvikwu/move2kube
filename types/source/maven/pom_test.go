@@ -176,17 +176,22 @@ func TestGetProperty(t *testing.T) {
 }
 
 func TestGetPropertyInterpolation(t *testing.T) {
-	// Known bug: the regex `\${(.+)}` is greedy and the text after the last
-	// match is never appended, so mixed or repeated references resolve wrongly.
-	// "pre-${a}-post" currently resolves to "pre-x" and "${a}${a}" errors out.
-	t.Skip("known bug in Pom.GetProperty interpolation; remove this skip once it is fixed")
-
 	pom := Pom{Properties: &Properties{Entries: Entries{
 		"a":      "x",
+		"b":      "y",
 		"wrap":   "pre-${a}-post",
 		"repeat": "${a}${a}",
+		"mixed":  "${a}.${b}/${a}",
+		"nested": "<${wrap}>",
+		"brace":  "a } b ${a}",
 	}}}
-	for key, want := range map[string]string{"wrap": "pre-x-post", "repeat": "xx"} {
+	for key, want := range map[string]string{
+		"wrap":   "pre-x-post",
+		"repeat": "xx",
+		"mixed":  "x.y/x",
+		"nested": "<pre-x-post>",
+		"brace":  "a } b x",
+	} {
 		got, err := pom.GetProperty(key)
 		if err != nil || got != want {
 			t.Errorf("%s: want %q, got %q (err %v)", key, want, got, err)
@@ -195,10 +200,20 @@ func TestGetPropertyInterpolation(t *testing.T) {
 }
 
 func TestPropertiesMarshalRoundTrip(t *testing.T) {
-	// Known bug: MarshalXML is defined on Entries rather than Properties, so the
-	// encoder wraps the entries in an extra <Entries> element and they are lost
-	// on unmarshal. Nothing in move2kube marshals a Pom today.
-	t.Skip("known bug in Properties XML marshalling; remove this skip once it is fixed")
+	t.Run("whole pom", func(t *testing.T) {
+		in := Pom{ArtifactID: "demo", Properties: &Properties{Entries: Entries{"java.version": "17"}}}
+		data, err := xml.Marshal(in)
+		if err != nil {
+			t.Fatalf("marshal failed: %v", err)
+		}
+		out := Pom{}
+		if err := xml.Unmarshal(data, &out); err != nil {
+			t.Fatalf("unmarshal failed: %v\n%s", err, data)
+		}
+		if out.ArtifactID != "demo" || out.Properties == nil || out.Properties.Entries["java.version"] != "17" {
+			t.Fatalf("round trip lost data: %+v\n%s", out, data)
+		}
+	})
 
 	type wrapper struct {
 		XMLName    xml.Name    `xml:"project"`

@@ -207,39 +207,36 @@ func skipIfStatement(chunk string, state *gradleParseState) bool {
 	return curlyBraceCount == 0
 }
 
+// skipFunctionDefinition is called with state.index on the opening parenthesis of the
+// parameter list and leaves state.index on the closing brace of the function body.
 func skipFunctionDefinition(chunk string, state *gradleParseState) {
-	parenthesisNest := 1
-	state.index++
 	chunkAsRuneA := []rune(chunk)
 	chunkLen := len(chunkAsRuneA)
-	var character rune
-	for chunkLen < state.index && parenthesisNest != 0 {
-		character = chunkAsRuneA[state.index]
-		if character == charLeftParanthesis {
+	// Skip the parameter list
+	parenthesisNest := 1
+	for state.index++; state.index < chunkLen && parenthesisNest != 0; state.index++ {
+		if chunkAsRuneA[state.index] == charLeftParanthesis {
 			parenthesisNest++
-		} else if character == charRightParanthesis {
+		} else if chunkAsRuneA[state.index] == charRightParanthesis {
 			parenthesisNest--
 		}
-		state.index++
-		character = chunkAsRuneA[state.index]
 	}
-	for chunkLen < state.index && character != charBlockStart {
+	// Skip to the start of the body
+	for state.index < chunkLen && chunkAsRuneA[state.index] != charBlockStart {
 		state.index++
-		character = chunkAsRuneA[state.index]
 	}
-	state.index++
-	character = chunkAsRuneA[state.index]
-	blockNest := 1
-	for chunkLen < state.index && blockNest != 0 {
-		if character == charBlockStart {
+	// Skip the body
+	blockNest := 0
+	for ; state.index < chunkLen; state.index++ {
+		if chunkAsRuneA[state.index] == charBlockStart {
 			blockNest++
-		} else if character == charBlockEnd {
+		} else if chunkAsRuneA[state.index] == charBlockEnd {
 			blockNest--
+			if blockNest == 0 {
+				return
+			}
 		}
-		state.index++
-		character = chunkAsRuneA[state.index]
 	}
-	state.index--
 }
 
 func parseDependencyClosure(chunk string, state *gradleParseState) []GradleDependency {

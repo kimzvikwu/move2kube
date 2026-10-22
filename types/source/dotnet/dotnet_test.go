@@ -167,4 +167,16 @@ func TestPropertiesUnmarshal(t *testing.T) {
 	if out.Properties == nil || out.Properties.Entries["Foo"] != "1" || out.Properties.Entries["Bar"] != "two" {
 		t.Fatalf("properties not parsed: %+v", out.Properties)
 	}
+
+	data, err := xml.Marshal(out)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	again := wrapper{}
+	if err := xml.Unmarshal(data, &again); err != nil {
+		t.Fatalf("unmarshal of marshalled output failed: %v\n%s", err, data)
+	}
+	if again.Properties == nil || again.Properties.Entries["Foo"] != "1" || again.Properties.Entries["Bar"] != "two" {
+		t.Fatalf("round trip lost data: %+v\n%s", again.Properties, data)
+	}
 }

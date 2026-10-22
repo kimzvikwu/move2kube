@@ -30,7 +30,7 @@ import (
 const PomXMLFileName string = "pom.xml"
 
 var (
-	propVar = regexp.MustCompile(`\${(.+)}`)
+	propVar = regexp.MustCompile(`\$\{([^}]+)\}`)
 )
 
 // Pom defines pom.xml data
@@ -99,9 +99,9 @@ func (pom *Pom) GetProperty(key string) (val string, err error) {
 				return "", err
 			}
 			newVal += propVal
-			prevMatch = fullMatch[2]
+			prevMatch = fullMatch[1]
 		}
-		val = newVal
+		val = newVal + val[prevMatch:]
 	}
 	return val, nil
 }
@@ -132,6 +132,11 @@ func (p *Properties) UnmarshalXML(d *xml.Decoder, start xml.StartElement) (err e
 	}
 
 	return nil
+}
+
+// MarshalXML marshals XML. Without it the encoder would wrap the entries in an <Entries> element.
+func (p Properties) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	return p.Entries.MarshalXML(e, start)
 }
 
 // MarshalXML marshals XML

@@ -124,6 +124,11 @@ func (p *Properties) UnmarshalXML(d *xml.Decoder, start xml.StartElement) (err e
 	return nil
 }
 
+// MarshalXML marshals XML. Without it the encoder would wrap the entries in an <Entries> element.
+func (p Properties) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	return p.Entries.MarshalXML(e, start)
+}
+
 // MarshalXML marshals XML
 func (entries Entries) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	tokens := []xml.Token{start}

@@ -169,12 +169,21 @@ func TestDeepParse(t *testing.T) {
 	})
 
 	t.Run("def functions are skipped", func(t *testing.T) {
-		// Known bug: the loop conditions in skipFunctionDefinition are inverted
-		// (chunkLen < state.index), so the function body is parsed as a block.
-		t.Skip("known bug in skipFunctionDefinition; remove this skip once it is fixed")
-		g := parseString("def foo(a) {\n  return a\n}\nversion = '1.0'\n")
+		g := parseString("def foo(a, b = bar(1)) {\n  if (a) { return [x: 1] }\n  return b\n}\nversion = '1.0'\n")
 		if len(g.Blocks) != 0 {
 			t.Fatalf("function body should not be parsed as a block: %+v", g.Blocks)
+		}
+		if diff := cmp.Diff(map[string][]string{"version": {"1.0"}}, g.Metadata); diff != "" {
+			t.Fatalf("parsing should resume after the function (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("unterminated def function does not panic", func(t *testing.T) {
+		for _, src := range []string{"def foo(", "def foo(a)", "def foo(a) {\n  return a\n"} {
+			g := parseString(src)
+			if len(g.Blocks) != 0 || len(g.Metadata) != 0 {
+				t.Errorf("%q: expected nothing to be parsed, got %+v", src, g)
+			}
 		}
 	})
 }
