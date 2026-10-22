@@ -206,6 +206,8 @@ const (
 	ConfigServicesChildModulesSpringProfilesKey = ConfigServicesKey + d + "%s" + d + "childModules" + d + "%s" + d + "springBootProfiles"
 	// ConfigTransformersKubernetesArgoCDNamespaceKey represents namespace key for argocd transformer
 	ConfigTransformersKubernetesArgoCDNamespaceKey = ConfigTransformersKey + d + "kubernetes" + d + "argocd" + d + "namespace"
+	// ConfigTransformersKubernetesNetworkPolicyTypeKey represents the type of network policy (Kubernetes or Calico) the kubernetes transformer should generate
+	ConfigTransformersKubernetesNetworkPolicyTypeKey = ConfigTransformersKey + d + "kubernetes" + d + "networkpolicy" + d + "type"
 	// ConfigArgoRolloutTypeKey represents the type of Rollout that should be generated.
 	ConfigArgoRolloutTypeKey = "argorollout"
 	//VCSKey represents version control system key
